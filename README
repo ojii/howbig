@@ -1,0 +1,10 @@
+Usage:
+
+    howbig [options] url
+    
+Options:
+    
+    -v, --verbose: print lots of information
+    -q, --quite: don't print anything (useless)
+    
+With no options, it just prints the result when it's done.

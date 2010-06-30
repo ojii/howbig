@@ -1,0 +1,119 @@
+#!/usr/bin/python
+from BeautifulSoup import BeautifulSoup
+from urllib2 import urlopen
+from optparse import OptionParser
+from urlparse import urlparse
+
+class Printer(object):
+    def __init__(self, level):
+        self.level = level
+        
+    def _out(self, msg, level):
+        if level < self.level:
+            print msg
+            
+    def err(self, msg):
+        self._out(msg, -1)
+        
+    def out(self, msg):
+        self._out(msg, 0)
+    
+    def info(self, msg):
+        self._out(msg, 1)
+        
+    def dbg(self, msg):
+        self._out(msg, 2)
+
+
+class NullHandler(object):
+    def read(self):
+        return ''
+
+def download(url, sizeonly=False):
+    try:
+        handler = urlopen(url)
+    except:
+        handler = NullHandler()
+    content = handler.read()
+    if sizeonly:
+        return len(content)
+    return content
+
+UNITS = [
+    'Bytes',
+    'Kilobytes',
+    'Megabytes',
+    'Gigabytes',
+    'Terabytes',
+    'Petabytes',
+    'Exabytes',
+    'Zettabytes',
+    'Yottabytes',
+]
+
+def format_size(size):
+    fsize = float(size)
+    i = 0
+    while fsize > 1024:
+        fsize /= 1024
+        i += 1
+    return fsize, UNITS[i]
+
+
+class Runner(object):
+    def __init__(self, url, printer):
+        self.printer = printer
+        self.url = url
+        self.host = '%(0)s://%(1)s' % dict([(str(x), y) for x,y in enumerate(urlparse(url))])
+        
+    def run(self):
+        self.printer.info('getting size of %s' % self.url)
+        self.printer.info('checking html')
+        page = download(self.url)
+        # html
+        htmlsize = len(page)
+        soup = BeautifulSoup(page)
+        # images
+        images = [img.get('src') for img in soup.findAll('img')]
+        imgsize = self.get_group(images, 'image')
+        # JS
+        images = [script.get('src') for script in soup.findAll('script') if script.get('src')]
+        jssize = self.get_group(images, 'javascript')
+        # CSS
+        images = [link.get('href') for link in soup.findAll('link') if link.get('type') == 'text/css']
+        csssize = self.get_group(images, 'css')
+        self.printer.info('')
+        self.printer.out("Size of '%s'" % self.url)
+        self.printer.out("----------%s" % ('-' * len(self.url)))
+        self.printer.out("HTML:  %.3f %s" % format_size(htmlsize))
+        self.printer.out("CSS:   %.3f %s" % format_size(csssize))
+        self.printer.out("JS:    %.3f %s" % format_size(jssize))
+        self.printer.out("IMG:   %.3f %s" % format_size(imgsize))
+        self.printer.out("")
+        self.printer.out("TOTAL: %.3f %s" % format_size(htmlsize + csssize + jssize + imgsize))
+        return htmlsize, csssize, jssize, imgsize
+    
+    def get_group(self, group, typename):
+        fsize = 0
+        group_length = len(group)
+        for index, src in enumerate(group):
+            self.printer.info('checking %s %s/%s' % (typename, index + 1, group_length))
+            fsize += download(self.get_url(src), True)
+        return fsize
+
+    def get_url(self, src):
+            if src.startswith('/'):
+                return self.host + src
+            elif src.startswith('http://') or src.startswith('https://'):
+                return src
+            else:
+                return self.url + src
+    
+if __name__ == '__main__':
+    parser = OptionParser()
+    parser.add_option("-q", "--quiet", action="store_const", const=0, dest="verbosity")
+    parser.add_option("-v", "--verbose", action="store_const", const=2, dest="verbosity")
+    parser.set_default("verbosity", 1)
+    options, args = parser.parse_args()
+    assert len(args) == 1, "Please give exactly one argument"
+    Runner(args[0], Printer(options.verbosity)).run()
